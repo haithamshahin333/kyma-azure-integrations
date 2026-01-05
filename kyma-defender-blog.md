@@ -86,6 +86,13 @@ Here’s what I personally confirm before I touch the portal:
 3) **Cluster access**
 
 - `kubectl` works and points at the cluster I’m onboarding.
+- If I’m missing kubeconfig on my workstation, the Kyma Dashboard has a **Download kubeconfig** link for the cluster.
+- I sanity-check that my kubeconfig/current context is the Kyma cluster before running anything destructive:
+
+```bash
+kubectl config current-context
+kubectl cluster-info
+```
 - I have capacity for Arc agents (the Arc quickstart calls out resource requirements and that agents are deployed on connect). (Docs: [Quickstart: Connect an existing Kubernetes cluster to Azure Arc](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/quickstart-connect-cluster))
 
 ### Step 1 — Connect the cluster to Azure Arc

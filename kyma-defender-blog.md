@@ -14,8 +14,6 @@ That’s the “why” for me: I want **real-time threat protection that produce
 
 Now the practical problem: if the cluster isn’t AKS—on‑prem, edge, or another cloud—I still want that runtime protection **without replatforming**. My approach is to connect the cluster to **Azure Arc-enabled Kubernetes**, then enable **Microsoft Defender for Containers** so Defender can deploy its security components as **Arc extensions**. (Docs: [Azure Arc-enabled Kubernetes overview](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/overview), [Deploy and manage Arc-enabled Kubernetes extensions](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/extensions))
 
-I’ll keep this conversational, but I won’t hand-wave the parts that usually bite (egress, extension state, and verification).
-
 ---
 
 ## What
@@ -328,9 +326,7 @@ If you’re running Kubernetes outside AKS, it’s easy to end up with fragmente
 
 into a hybrid Kubernetes estate—without replatforming.
 
-If I were prioritizing “what next” after onboarding, I’d focus on:
-
-1) operationalizing the verification checks so `Connected`, `Succeeded`, and `Running` become part of your definition of done.
+In future posts, I’ll explore what else we can do with **Kyma + Azure Arc + Azure** beyond Defender for Containers (observability, more security patterns, etc.).
 
 ---
 

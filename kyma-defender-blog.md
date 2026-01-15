@@ -1,67 +1,40 @@
 # Securing an external Kubernetes cluster with Microsoft Defender for Containers (via Azure Arc)
 
-When I say “secure Kubernetes”, I’m not just thinking about admission policies and CIS checklists.
+When I say "secure Kubernetes", I'm not just thinking about admission policies and CIS checklists. I'm thinking about what happens when **something is already running** and turns malicious — a web shell lands in a pod, a container starts burning CPU for crypto mining, or someone drops network scanning tools into an otherwise boring workload.
 
-I’m thinking about the moment **something is already running** and turns into a problem: a web shell lands in a pod, a container starts burning CPU for crypto mining, or someone drops network scanning tools into an otherwise boring workload.
+If you're running **SAP BTP Kyma runtime**, this matters. Kyma has strong [platform hardening](https://help.sap.com/docs/btp/sap-business-technology-platform/kyma-security-concepts#kubernetes-control-plane) (Gardener-managed control plane, DISA STIG alignment), and API server audit logs exist — but those logs go to [SAP's Platform Logging Service](https://help.sap.com/docs/btp/sap-business-technology-platform/auditing-and-logging-information-in-kyma), not directly to you. That's fine for platform-level auditing, but it's not the same as **seeing threats inside your workloads at runtime**.
 
-That’s exactly what Defender for Containers calls **workload runtime detection** (for example: web shell activity, crypto mining activity, network scanning tools, and binary drift detection) — and it’s powered by the Defender sensor watching workload runtime activity (including process creation events). (Docs: [Kubernetes alerts — Workload runtime detection](https://learn.microsoft.com/en-us/azure/defender-for-cloud/alerts-containers#workload-runtime-detection))
-
-If you’re running **SAP BTP, Kyma runtime**, this runtime-focused angle matters. Kyma already comes with a lot of “platform hardening” out of the box (for example, the control plane is managed by Gardener and aligned to DISA STIG requirements). (Docs: [Kyma security concepts — Kubernetes control plane](https://github.com/SAP-docs/btp-cloud-platform/blob/main/docs/60-security/kyma-security-concepts-dbf4503.md#kubernetes-control-plane))
-
-Kyma also states that Kubernetes API server audit logging is active, but those audit logs are written to SAP’s Platform Logging Service — and the separate Kyma auditing doc notes you don’t have direct access to the audit logs without going through a support ticket. That’s a totally valid operating model, but it’s not the same as **runtime detections inside the node/workload** (process activity, crypto mining heuristics, etc.). (Docs: [Kyma security concepts — Kubernetes native audit logging configuration](https://github.com/SAP-docs/btp-cloud-platform/blob/main/docs/60-security/kyma-security-concepts-dbf4503.md#kubernetes-native-audit-logging-configuration), [Auditing and logging information in Kyma — Retrieving audit log entries](https://github.com/SAP-docs/btp-cloud-platform/blob/main/docs/60-security/auditing-and-logging-information-in-kyma-935e241.md#retrieving-audit-log-entries))
-
-That’s the “why” for me: I want **real-time threat protection that produces actionable alerts** for suspicious activity at the cluster, node, and workload levels — and for Kyma, I’m intentionally focusing on the **sensor-backed runtime detections**. (Docs: [Defender for Containers introduction — Run-time protection for Kubernetes nodes and clusters](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-introduction#run-time-protection-for-kubernetes-nodes-and-clusters))
-
-Now the practical problem: if the cluster isn’t AKS—on‑prem, edge, or another cloud—I still want that runtime protection **without replatforming**. My approach is to connect the cluster to **Azure Arc-enabled Kubernetes**, then enable **Microsoft Defender for Containers** so Defender can deploy its security components as **Arc extensions**. (Docs: [Azure Arc-enabled Kubernetes overview](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/overview), [Deploy and manage Arc-enabled Kubernetes extensions](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/extensions))
+That's the gap I'm filling: **runtime threat detection** — the ability to detect and alert on malicious activity (crypto mining, web shells, credential theft) while workloads are running.
 
 ---
 
-## What
+## Real-world threats
 
-### What I’m doing (in one sentence)
+These aren't hypotheticals — crypto mining and container compromise campaigns are actively targeting Kubernetes clusters:
 
-1) connecting it to Azure as an **Azure Arc-enabled Kubernetes** resource, then
-2) enabling **Microsoft Defender for Containers**, and
-3) deploying/verifying the **Defender sensor** so I get runtime protection.
+**DERO Cryptojacking (2023–2024)**: Attackers scanned for misconfigured Kubernetes API servers, then deployed DaemonSets named "proxy-api" to blend in with legitimate cluster components. The mining process itself was named "pause" — masquerading as the standard Kubernetes pause container. CrowdStrike found malicious images with over 10,000 pulls on Docker Hub. **How runtime detection helps**: Defender's eBPF monitoring catches unusual process spawning from "pause" containers and flags sustained high CPU from processes that shouldn't be compute-intensive. (Source: [CrowdStrike — DERO Cryptojacking Discovery](https://www.crowdstrike.com/en-us/blog/crowdstrike-discovers-first-ever-dero-cryptojacking-campaign-targeting-kubernetes/))
 
-### What gets installed on my cluster
+**Kinsing Campaign (2023–ongoing)**: This campaign exploits vulnerabilities in PostgreSQL, WebLogic, Liferay, and WordPress to gain initial access to containers, then pivots to deploy crypto miners across the cluster. The campaign has affected 75+ cloud-native applications. **How runtime detection helps**: Defender detects process genealogy anomalies — for example, a WebLogic process spawning shell commands that enumerate Kubernetes resources or deploy new containers. (Source: [The Hacker News — Kinsing Cryptojacking](https://thehackernews.com/2023/01/kinsing-cryptojacking-hits-kubernetes.html))
 
-1) **Arc agents**: these show up when I connect the cluster to Azure Arc. They run in the `azure-arc` namespace and maintain the outbound connection back to Azure. (Docs: [Quickstart: Connect an existing Kubernetes cluster to Azure Arc](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/quickstart-connect-cluster))
-
-2) **Defender for Containers components**:
-
-- **Defender sensor**: a lightweight DaemonSet deployed on each node to collect runtime telemetry (using eBPF) and related security signals. This is what enables **workload runtime detection** (for example: web shell activity, crypto mining activity, network scanning tools, and binary drift detection). For unmanaged clusters, it’s deployed as an Arc-enabled Kubernetes extension. (Docs: [Defender for Containers architecture](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-architecture), [Kubernetes alerts — Workload runtime detection](https://learn.microsoft.com/en-us/azure/defender-for-cloud/alerts-containers#workload-runtime-detection))
-
-If you’re a “mental model” person: **Arc gives me the Azure control plane bridge; Defender uses Arc extensions to bring security into the cluster.** (Docs: [Deploy and manage Arc-enabled Kubernetes extensions](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/extensions))
+The pattern: attackers get in through a misconfiguration or vulnerability, then run workloads **inside** the cluster. Admission policies and CIS benchmarks don't catch threats that start after deployment — that's the gap runtime detection fills.
 
 ---
 
-## Why
+## The solution: Azure Arc + Defender for Containers
 
-### Why I use Arc as the foundation
+For non-AKS clusters, the approach is: **Azure Arc** (makes the cluster an Azure resource) + **Defender for Containers** (deploys the runtime sensor as an Arc extension).
 
-I don’t want a different operational model for every cluster. Arc turns clusters into Azure Resource Manager resources, which means I can inventory, tag, and manage them from Azure. That’s exactly what Arc-enabled Kubernetes is for. (Docs: [Azure Arc-enabled Kubernetes overview](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/overview))
+**What gets installed**:
+- **Arc agents** (`azure-arc` namespace): maintain outbound connection to Azure
+- **Defender sensor** (DaemonSet on each node): collects runtime telemetry via eBPF — process creation, network activity, system calls
 
-One more underrated benefit once the cluster is connected:
+**What the sensor detects**: crypto mining patterns, web shell activity, network scanning tools, binary drift. (Docs: [Workload runtime detection](https://learn.microsoft.com/en-us/azure/defender-for-cloud/alerts-containers#workload-runtime-detection))
 
-- **Governance at scale (Resource Graph)**: because the cluster is now an Azure resource, I can query it (and all my other Arc-enabled clusters) through **Azure Resource Graph** for fleet-wide inventory/reporting.
-- **Extension platform**: Arc-enabled Kubernetes supports installing **extensions**, so Defender isn’t the only “add-on” I can deploy. I’ll cover other useful extensions in future posts.
+![Kyma + Azure Arc + Defender for Containers architecture](blog-images/kyma-defender-architecture.png)
 
-(Docs: [Azure Resource Graph overview](https://learn.microsoft.com/en-us/azure/governance/resource-graph/overview), [Deploy and manage Arc-enabled Kubernetes extensions](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/extensions))
+Arc also provides an **extension platform** — Defender isn't the only add-on you can deploy this way. And Microsoft provides a [verification checklist](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-arc-verify) so you can prove it's working.
 
-### Why Defender for Containers is worth it for external clusters
-
-For me, Defender for Containers is worth the setup effort on non-AKS clusters for two reasons:
-
-1. **Runtime signal**: the Defender sensor provides runtime threat protection signals on unmanaged clusters via an Arc extension. (Docs: [Defender for Containers architecture](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-architecture))
-2. **I can prove it’s working**: Microsoft provides a verification checklist (CLI + kubectl + portal) so I can validate connectivity, extension provisioning, sensor pods, and whether alerts are showing up. (Docs: [Verify Defender for Containers on Arc-enabled Kubernetes](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-arc-verify))
-
-### Why I start with networking (because it’s always networking)
-
-Both Arc and Defender depend on outbound connectivity to specific endpoints. If I skip this, onboarding turns into a confusing “why is the extension stuck?” session.
-
-- Arc’s authoritative egress list is in the network requirements doc. (Docs: [Azure Arc-enabled Kubernetes network requirements](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/network-requirements))
-- Defender for Containers on Arc calls out the Defender endpoint `*.cloud.defender.microsoft.com:443`. (Docs: [Enable Defender for Containers on Arc-enabled Kubernetes (portal)](https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-containers-arc-enable-portal))
+**Networking note**: Both Arc and Defender require outbound connectivity. If egress is blocked, onboarding fails silently. Check the [Arc network requirements](https://learn.microsoft.com/en-us/azure/azure-arc/kubernetes/network-requirements) and ensure `*.cloud.defender.microsoft.com:443` is allowed.
 
 ---
 
